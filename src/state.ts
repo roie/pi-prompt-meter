@@ -52,6 +52,17 @@ function normalizeUsage(usage?: UsageLike): UsageTotals {
   };
 }
 
+function hasUsage(usage: UsageTotals): boolean {
+  return (
+    usage.input > 0 ||
+    usage.output > 0 ||
+    usage.cacheRead > 0 ||
+    usage.cacheWrite > 0 ||
+    usage.totalTokens > 0 ||
+    usage.cost > 0
+  );
+}
+
 function addUsage(left: UsageTotals, right: UsageTotals): UsageTotals {
   return {
     input: left.input + right.input,
@@ -121,10 +132,16 @@ export function finalizeMessageUsage(
 ): void {
   if (state.finalizedMessageKeys.has(messageKey)) return;
 
-  state.finalizedMessageKeys.add(messageKey);
-  state.finalizedUsage = addUsage(state.finalizedUsage, normalizeUsage(usage));
+  const finalUsage = normalizeUsage(usage);
+  const isCurrentStream = state.streamingMessageKey === messageKey;
+  const usageToFinalize = isCurrentStream && !hasUsage(finalUsage)
+    ? state.streamingUsage
+    : finalUsage;
 
-  if (state.streamingMessageKey === messageKey) {
+  state.finalizedMessageKeys.add(messageKey);
+  state.finalizedUsage = addUsage(state.finalizedUsage, usageToFinalize);
+
+  if (isCurrentStream) {
     state.streamingMessageKey = undefined;
     state.streamingUsage = zeroUsage();
   }

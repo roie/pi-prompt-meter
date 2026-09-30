@@ -1,4 +1,4 @@
-export type MeterLabel = 'Working' | 'Last' | 'Canceled' | 'Error';
+export type MeterLabel = 'Working' | 'Done' | 'Canceled' | 'Error';
 
 export interface UsageTotals {
   input: number;
@@ -16,15 +16,9 @@ function finiteNonNegative(value: number): number {
 export function formatTokens(value: number): string {
   const normalized = finiteNonNegative(value);
   if (normalized < 1_000) return Math.round(normalized).toString();
-  if (normalized < 10_000) {
-    const valueK = normalized / 1_000;
-    return Number.isInteger(valueK) ? `${valueK}k` : `${valueK.toFixed(1)}k`;
-  }
+  if (normalized < 10_000) return `${(normalized / 1_000).toFixed(1)}k`;
   if (normalized < 1_000_000) return `${Math.round(normalized / 1_000)}k`;
-  if (normalized < 10_000_000) {
-    const valueM = normalized / 1_000_000;
-    return Number.isInteger(valueM) ? `${valueM}M` : `${valueM.toFixed(1)}M`;
-  }
+  if (normalized < 10_000_000) return `${(normalized / 1_000_000).toFixed(1)}M`;
   return `${Math.round(normalized / 1_000_000)}M`;
 }
 

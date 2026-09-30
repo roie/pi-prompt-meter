@@ -9,11 +9,15 @@ import {
   type UsageTotals,
 } from '../src/format.ts';
 
-test('formats token counts compactly', () => {
+test('formats token counts with compact Pi-style units', () => {
   assert.equal(formatTokens(999), '999');
-  assert.equal(formatTokens(1_000), '1k');
+  assert.equal(formatTokens(1_000), '1.0k');
   assert.equal(formatTokens(1_250), '1.3k');
-  assert.equal(formatTokens(1_000_000), '1M');
+  assert.equal(formatTokens(10_000), '10k');
+  assert.equal(formatTokens(999_999), '1000k');
+  assert.equal(formatTokens(1_000_000), '1.0M');
+  assert.equal(formatTokens(9_999_999), '10.0M');
+  assert.equal(formatTokens(10_000_000), '10M');
 });
 
 test('formats elapsed time as a compact clock', () => {
@@ -48,13 +52,13 @@ test('formats Working meter with cache write hidden at zero', () => {
 
 test('shows cache write only when non-zero', () => {
   assert.equal(
-    formatMeter('Last', 277_000, { ...baseUsage, cacheWrite: 12_000 }, false),
-    'Last · 04:37 · ↑42k ↓6.1k R1.8M W12k · $0.041',
+    formatMeter('Done', 277_000, { ...baseUsage, cacheWrite: 12_000 }, false),
+    'Done · 04:37 · ↑42k ↓6.1k R1.8M W12k · $0.041',
   );
 });
 
-test('uses exact state labels', () => {
-  for (const label of ['Working', 'Last', 'Canceled', 'Error'] as const) {
+test('uses exact final-state labels', () => {
+  for (const label of ['Working', 'Done', 'Canceled', 'Error'] as const) {
     assert.match(formatMeter(label, 0, baseUsage, false), new RegExp(`^${label} ·`));
   }
 });

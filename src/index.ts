@@ -46,6 +46,7 @@ interface MessageLike {
   role: string;
   usage?: UsageLike;
   toolCallId?: string;
+  timestamp?: number;
 }
 
 interface PromptMeterEventMap {
@@ -108,6 +109,7 @@ function isSubscriptionBacked(ctx: PromptMeterContext): boolean {
   return false;
 }
 
+
 function styleFinalMeter(ctx: PromptMeterContext, label: MeterLabel, text: string): string {
   if (label !== 'Done') return text;
 
@@ -149,7 +151,7 @@ export function registerPromptMeter(
   let state: PromptMeterState | undefined;
   let timer: unknown;
   let subscription = false;
-  let messageKeys = new WeakMap<object, string>();
+  let assistantKeysByTimestamp = new Map<number, string>();
   let currentAssistantKey: string | undefined;
   let nextAssistantKey = 1;
 
@@ -163,7 +165,7 @@ export function registerPromptMeter(
     stopTimer();
     state = undefined;
     subscription = false;
-    messageKeys = new WeakMap<object, string>();
+    assistantKeysByTimestamp = new Map<number, string>();
     currentAssistantKey = undefined;
     nextAssistantKey = 1;
     safeSetStatus(ctx, undefined);
@@ -171,20 +173,25 @@ export function registerPromptMeter(
     safeSetWorkingMessage(ctx);
   };
 
+  const rememberAssistantKey = (message: MessageLike, key: string): string => {
+    if (typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)) {
+      assistantKeysByTimestamp.set(message.timestamp, key);
+    }
+    return key;
+  };
+
   const beginAssistant = (message: MessageLike): string => {
-    const key = `assistant:${nextAssistantKey++}`;
-    messageKeys.set(message, key);
+    const key = rememberAssistantKey(message, `assistant:${nextAssistantKey++}`);
     currentAssistantKey = key;
     return key;
   };
 
   const assistantKey = (message: MessageLike): string => {
-    const existing = messageKeys.get(message);
-    if (existing) return existing;
-    if (currentAssistantKey) {
-      messageKeys.set(message, currentAssistantKey);
-      return currentAssistantKey;
+    if (typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)) {
+      const existing = assistantKeysByTimestamp.get(message.timestamp);
+      if (existing) return existing;
     }
+    if (currentAssistantKey) return rememberAssistantKey(message, currentAssistantKey);
     return beginAssistant(message);
   };
 
@@ -201,14 +208,19 @@ export function registerPromptMeter(
     timer = runtime.setInterval(() => refreshWorking(ctx), TICK_MS);
   };
 
-  pi.on('session_start', (_event, ctx) => clearPromptState(ctx));
-  pi.on('session_shutdown', (_event, ctx) => clearPromptState(ctx));
+  pi.on('session_start', (_event, ctx) => {
+    clearPromptState(ctx);
+  });
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    clearPromptState(ctx);
+  });
 
   pi.on('before_agent_start', (_event, ctx) => {
     stopTimer();
     state = createPromptMeter(runtime.now());
     subscription = isSubscriptionBacked(ctx);
-    messageKeys = new WeakMap<object, string>();
+    assistantKeysByTimestamp = new Map<number, string>();
     currentAssistantKey = undefined;
     nextAssistantKey = 1;
     safeSetStatus(ctx, undefined);
