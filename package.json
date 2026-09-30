@@ -1,0 +1,44 @@
+{
+  "name": "pi-prompt-meter",
+  "version": "0.1.0",
+  "description": "A tiny Pi extension that shows how much time and model usage each prompt consumes.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Roie Ambulo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roie/pi-prompt-meter.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "usage",
+    "tokens",
+    "prompt"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
