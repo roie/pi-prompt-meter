@@ -27,7 +27,7 @@ test('meter history record accepts a complete v1 record', () => {
 });
 
 test('meter history record remains backward compatible when activity counts are absent', () => {
-  const { turns, toolCalls, compactions, ...legacyV1 } = valid;
+  const { turns, toolCalls, compactions, transcript, ...legacyV1 } = valid;
   assert.deepEqual(parseMeterHistoryRecord(legacyV1), legacyV1);
 });
 

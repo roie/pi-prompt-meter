@@ -1,9 +1,10 @@
 import { listProjectHistory } from './history/catalog.ts';
 import { navigateToHistoryPrompt } from './navigation.ts';
 import { MeterView, type MeterViewResult } from './ui/meter-view.ts';
+import { renderMeterHistoryEntry } from './ui/render-meter-entry.ts';
 import { METER_ENTRY_TYPE } from './history/record.ts';
 import type { BillingKind, MeterHistoryOutcome } from './history/types.ts';
-import { formatMeter, type MeterLabel } from './format.ts';
+import { formatMeter } from './format.ts';
 import {
   activeElapsedMs,
   addCompactionUsage,
@@ -61,12 +62,14 @@ interface MessageLike {
   usage?: UsageLike;
   toolCallId?: string;
   timestamp?: number;
+  stopReason?: string;
 }
 
 interface PromptMeterEventMap {
   session_start: { type: 'session_start'; reason?: string };
   session_shutdown: { type: 'session_shutdown'; reason?: string };
-  before_agent_start: { type: 'before_agent_start'; prompt?: string };
+  before_agent_start: { type: 'before_agent_start'; prompt?: string; images?: readonly unknown[] };
+  agent_start: { type: 'agent_start' };
   turn_start: { type: 'turn_start'; turnIndex: number; timestamp: number };
   tool_execution_start: {
     type: 'tool_execution_start';
@@ -90,6 +93,14 @@ interface PromptMeterEventMap {
 
 export interface PromptMeterExtensionAPI {
   appendEntry(customType: string, data?: unknown): void;
+  registerEntryRenderer?(
+    customType: string,
+    renderer: (
+      entry: { data?: unknown },
+      options: { expanded: boolean },
+      theme: { fg(role: string, text: string): string },
+    ) => unknown,
+  ): void;
   registerCommand?(name: string, command: { description: string; handler: (args: string, ctx: PromptMeterCommandContext) => unknown }): void;
   on<K extends keyof PromptMeterEventMap>(
     name: K,
@@ -137,12 +148,6 @@ const defaultRuntime: PromptMeterRuntime = {
   clearInterval: (handle) => globalThis.clearInterval(handle as number),
 };
 
-function finalLabel(outcome: PromptOutcome | undefined): MeterLabel {
-  if (outcome === 'aborted') return 'Canceled';
-  if (outcome === 'error') return 'Error';
-  return 'Done';
-}
-
 function billingKind(ctx: PromptMeterContext): BillingKind {
   const model = ctx.model;
   if (!model) return 'unknown';
@@ -186,16 +191,6 @@ function isSubscriptionBacked(ctx: PromptMeterContext): boolean {
 }
 
 
-function styleFinalMeter(ctx: PromptMeterContext, label: MeterLabel, text: string): string {
-  if (label !== 'Done') return text;
-
-  try {
-    return ctx.ui.theme?.fg('dim', text) ?? text;
-  } catch {
-    return text;
-  }
-}
-
 function safeSetStatus(ctx: PromptMeterContext, text: string | undefined): void {
   try {
     ctx.ui.setStatus(STATUS_KEY, text);
@@ -212,9 +207,9 @@ function safeSetWorkingMessage(ctx: PromptMeterContext, text?: string): void {
   }
 }
 
-function safeSetWidget(ctx: PromptMeterContext, text?: string): void {
+function clearWidget(ctx: PromptMeterContext): void {
   try {
-    ctx.ui.setWidget(STATUS_KEY, text === undefined ? undefined : [text], { placement: 'aboveEditor' });
+    ctx.ui.setWidget(STATUS_KEY, undefined, { placement: 'aboveEditor' });
   } catch {
     // Display failures must never interfere with the agent run.
   }
@@ -228,11 +223,18 @@ export function registerPromptMeter(
   let state: PromptMeterState | undefined;
   let timer: unknown;
   let subscription = false;
+  let turnOffset = 0;
   let assistantKeysByTimestamp = new Map<number, string>();
   let currentAssistantKey: string | undefined;
   let nextAssistantKey = 1;
   let promptText = '';
   let initiatingUserMessage: MessageLike | undefined;
+
+  const durableTranscript = typeof pi.registerEntryRenderer === 'function';
+  pi.registerEntryRenderer?.(
+    METER_ENTRY_TYPE,
+    (entry, _options, theme) => renderMeterHistoryEntry(entry.data, theme),
+  );
 
   const stopTimer = (): void => {
     if (timer === undefined) return;
@@ -244,13 +246,14 @@ export function registerPromptMeter(
     stopTimer();
     state = undefined;
     subscription = false;
+    turnOffset = 0;
     assistantKeysByTimestamp = new Map<number, string>();
     currentAssistantKey = undefined;
     nextAssistantKey = 1;
     promptText = '';
     initiatingUserMessage = undefined;
     safeSetStatus(ctx, undefined);
-    safeSetWidget(ctx);
+    clearWidget(ctx);
     safeSetWorkingMessage(ctx);
   };
 
@@ -338,23 +341,33 @@ export function registerPromptMeter(
   });
 
   pi.on('before_agent_start', (event, ctx) => {
-    stopTimer();
+    clearPromptState(ctx);
+    // Empty, image-free runs are internal probes, not user prompts (e.g. /context).
+    if (!event.prompt?.trim() && !event.images?.length) return;
     state = createPromptMeter(runtime.now());
     subscription = isSubscriptionBacked(ctx);
+    turnOffset = 0;
     assistantKeysByTimestamp = new Map<number, string>();
     currentAssistantKey = undefined;
     nextAssistantKey = 1;
     promptText = event.prompt ?? '';
     initiatingUserMessage = undefined;
     safeSetStatus(ctx, undefined);
-    safeSetWidget(ctx);
+    clearWidget(ctx);
     refreshWorking(ctx);
     startTimer(ctx);
   });
 
+  pi.on('agent_start', () => {
+    if (!state?.active) return;
+    // Pi resets turnIndex on agent.continue(), including retries and recovery.
+    // Those runs still belong to the same prompt until agent_settled.
+    turnOffset = snapshotActivity(state).turns;
+  });
+
   pi.on('turn_start', (event) => {
     if (!state?.active) return;
-    recordTurn(state, event.turnIndex);
+    recordTurn(state, turnOffset + event.turnIndex);
   });
 
   pi.on('tool_execution_start', (event) => {
@@ -383,6 +396,10 @@ export function registerPromptMeter(
     if (event.message.role === 'assistant') {
       const key = assistantKey(event.message);
       finalizeMessageUsage(state, key, event.message.usage);
+      // Pi skips agent_before_settle when aborted. The latest terminal assistant
+      // supplies the fallback outcome; a later recovery or boundary can replace it.
+      const stopReason = event.message.stopReason;
+      setOutcome(state, stopReason === 'aborted' || stopReason === 'error' ? stopReason : 'completed');
       if (currentAssistantKey === key) currentAssistantKey = undefined;
     } else if (event.message.role === 'toolResult') {
       if (!event.message.toolCallId) return;
@@ -425,14 +442,14 @@ export function registerPromptMeter(
     const elapsedMs = activeElapsedMs(state, settledAt);
     const usage = snapshotTotals(state);
     const activity = snapshotActivity(state);
-    const label = finalLabel(state.outcome);
 
     state.active = false;
     stopTimer();
     safeSetWorkingMessage(ctx);
     safeSetStatus(ctx, undefined);
-    const finalText = formatMeter(label, elapsedMs, usage, subscription, activity);
-    safeSetWidget(ctx, styleFinalMeter(ctx, label, finalText));
+    // Completed meters belong only to the custom-entry transcript, never a widget.
+    clearWidget(ctx);
+    let persisted = false;
 
     try {
       const userEntryId = initiatingUserMessage
@@ -455,12 +472,23 @@ export function registerPromptMeter(
           turns: activity.turns,
           toolCalls: activity.toolCalls,
           compactions: activity.compactions,
+          transcript: true,
           billing: billingKind(ctx),
           outcome: historyOutcome(state.outcome),
         });
+        persisted = true;
       }
     } catch {
-      // History persistence must never interfere with the live meter.
+      // appendEntry may throw after storing the entry (for example in a UI listener).
+      // Never retry or create a second meter on another surface.
+    }
+
+    if (!persisted || !durableTranscript) {
+      try {
+        ctx.ui.notify?.('Prompt meter transcript unavailable; no fallback meter was created.', 'warning');
+      } catch {
+        // Notification failures must not affect settlement either.
+      }
     }
   });
 }

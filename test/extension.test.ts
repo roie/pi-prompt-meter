@@ -2,9 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { registerPromptMeter } from '../src/index.ts';
+import { renderMeterHistoryEntry } from '../src/ui/render-meter-entry.ts';
 
 class FakePi {
   handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
+  appended: any[] = [];
+  registerEntryRenderer() {}
+  appendEntry(_type: string, data: any) { this.appended.push(data); }
 
   on(name: string, handler: (event: any, ctx: any) => unknown): () => void {
     const handlers = this.handlers.get(name) ?? [];
@@ -73,6 +77,7 @@ function createContext(subscription = false) {
   const ui = createUI();
   return {
     ui,
+    sessionManager: { getEntries: () => [{ type: 'message', id: 'u1', message: userMessage }] },
     model: { provider: 'openai-codex', id: 'gpt-5.6-sol' },
     modelRegistry: {
       isUsingOAuth: () => subscription,
@@ -99,16 +104,23 @@ function toolResult(toolCallId: string, usage = use(0, 0)) {
   return { role: 'toolResult', toolCallId, usage, timestamp: 0 };
 }
 
+const userMessage = { role: 'user' };
+
 function setup(subscription = false) {
   const pi = new FakePi();
   const clock = new FakeClock();
   const ctx = createContext(subscription);
   registerPromptMeter(pi, clock);
+  pi.on('before_agent_start', async () => {
+    await pi.emit('message_start', { type: 'message_start', message: userMessage }, ctx);
+  });
+  Object.assign(ctx, { pi });
   return { pi, clock, ctx };
 }
 
 function meterWidgetText(ctx: ReturnType<typeof createContext>): string | undefined {
-  return ctx.ui.widgets.get('pi-prompt-meter')?.lines[0];
+  const data = (ctx as any).pi?.appended.at(-1);
+  return renderMeterHistoryEntry(data, ctx.ui.theme)?.render(160)[0]?.trim();
 }
 
 test('session start clears the final widget and restores the default Working message', async () => {
@@ -144,21 +156,19 @@ test('timer refreshes elapsed time without provider events', async () => {
   assert.equal(ctx.ui.working.at(-1), 'Working · 00:02 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000');
 });
 
-test('settled result stays above the editor instead of moving into the footer', async () => {
+test('settled result belongs to the transcript instead of the editor or footer', async () => {
   const { pi, ctx } = setup();
   await pi.emit('before_agent_start', { type: 'before_agent_start', prompt: 'hello' }, ctx);
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
   assert.equal(ctx.ui.status.has('pi-prompt-meter'), false);
-  assert.deepEqual(ctx.ui.widgets.get('pi-prompt-meter'), {
-    lines: ['[dim]Done · 00:00 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000[/dim]'],
-    placement: 'aboveEditor',
-  });
+  assert.equal(ctx.ui.widgets.size, 0);
+  assert.equal(meterWidgetText(ctx), '[dim]Prompt Meter · 00:00 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000[/dim]');
   assert.equal(ctx.ui.working.at(-1), undefined);
 });
 
-test('multiple assistant messages aggregate and settle as Done', async () => {
+test('multiple assistant messages aggregate into a Prompt Meter transcript row', async () => {
   const { pi, clock, ctx } = setup(true);
   await pi.emit('before_agent_start', { type: 'before_agent_start', prompt: 'hello' }, ctx);
 
@@ -176,7 +186,7 @@ test('multiple assistant messages aggregate and settle as Done', async () => {
 
   assert.equal(
     meterWidgetText(ctx),
-    '[dim]Done · 00:04 · ↑15 ↓3 R27 W7 · ↻0 TC0 Cmp0 · $0.015 (sub)[/dim]',
+    '[dim]Prompt Meter · 00:04 · ↑15 ↓3 R27 W7 · ↻0 TC0 Cmp0 · $0.015 (sub)[/dim]',
   );
   assert.equal(ctx.ui.working.at(-1), undefined);
   assert.equal(clock.intervals.size, 0);
@@ -203,7 +213,7 @@ test('cloned assistant streaming snapshots are finalized exactly once', async ()
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑10 ↓2 R25 · ↻0 TC0 Cmp0 · $0.010[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Prompt Meter · 00:00 · ↑10 ↓2 R25 · ↻0 TC0 Cmp0 · $0.010[/dim]');
 });
 
 test('canceled prompt keeps the last streamed usage when the terminal message reports zero', async () => {
@@ -236,7 +246,7 @@ test('tool-result usage is included when Pi supplies it', async () => {
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑3 ↓1 R9 · ↻0 TC0 Cmp0 · $0.004[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Prompt Meter · 00:00 · ↑3 ↓1 R9 · ↻0 TC0 Cmp0 · $0.004[/dim]');
 });
 
 test('automatic compaction usage is included exactly once', async () => {
@@ -255,7 +265,7 @@ test('automatic compaction usage is included exactly once', async () => {
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑100 ↓20 R200 · ↻0 TC0 Cmp1 · $0.100[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Prompt Meter · 00:00 · ↑100 ↓20 R200 · ↻0 TC0 Cmp1 · $0.100[/dim]');
 });
 
 test('blocking UI wait time is excluded from the prompt timer', async () => {
@@ -273,7 +283,7 @@ test('blocking UI wait time is excluded from the prompt timer', async () => {
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.match(meterWidgetText(ctx) ?? '', /\[dim\]Done · 00:05 ·.*\[\/dim\]/);
+  assert.match(meterWidgetText(ctx) ?? '', /\[dim\]Prompt Meter · 00:05 ·.*\[\/dim\]/);
 });
 
 test('agent_end does not finalize because recovery may continue', async () => {
@@ -288,7 +298,7 @@ test('agent_end does not finalize because recovery may continue', async () => {
 
 test('settlement maps completed, aborted, and error outcomes to final labels', async () => {
   const cases = [
-    ['completed', '[dim]Done ·'],
+    ['completed', '[dim]Prompt Meter ·'],
     ['aborted', 'Canceled ·'],
     ['error', 'Error ·'],
   ] as const;
@@ -302,12 +312,12 @@ test('settlement maps completed, aborted, and error outcomes to final labels', a
   }
 });
 
-test('the next prompt clears the previous final result', async () => {
+test('the next prompt keeps the previous transcript result but has no final widget', async () => {
   const { pi, ctx } = setup();
   await pi.emit('before_agent_start', { type: 'before_agent_start', prompt: 'one' }, ctx);
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
-  assert.match(meterWidgetText(ctx) ?? '', /^\[dim\]Done ·/);
+  assert.match(meterWidgetText(ctx) ?? '', /^\[dim\]Prompt Meter ·/);
 
   await pi.emit('before_agent_start', { type: 'before_agent_start', prompt: 'two' }, ctx);
   assert.equal(ctx.ui.widgets.has('pi-prompt-meter'), false);

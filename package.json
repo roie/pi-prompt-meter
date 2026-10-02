@@ -1,6 +1,6 @@
 {
   "name": "pi-prompt-meter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A tiny Pi extension that shows how much time and model usage each prompt consumes.",
   "type": "module",
   "license": "MIT",

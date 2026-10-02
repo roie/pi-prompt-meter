@@ -7,6 +7,7 @@ class FakePi {
   handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   commands = new Map<string, { handler: (args: string, ctx: any) => unknown }>();
   appended: Array<{ customType: string; data: any }> = [];
+  renderers = new Map<string, (entry: any, options: any, theme: any) => any>();
 
   on(name: string, handler: (event: any, ctx: any) => unknown) {
     const list = this.handlers.get(name) ?? [];
@@ -17,6 +18,10 @@ class FakePi {
 
   registerCommand(name: string, command: { handler: (args: string, ctx: any) => unknown }) {
     this.commands.set(name, command);
+  }
+
+  registerEntryRenderer(customType: string, renderer: (entry: any, options: any, theme: any) => any) {
+    this.renderers.set(customType, renderer);
   }
 
   appendEntry(customType: string, data: any) {
@@ -98,6 +103,14 @@ function context(entries: any[] = [], subscription: boolean | 'unknown' = true) 
   };
 }
 
+function transcriptMeterText(pi: FakePi, ctx: any, index = 0): string | undefined {
+  const renderer = pi.renderers.get('pi-prompt-meter/v1');
+  const data = pi.appended[index]?.data;
+  if (!renderer || !data) return undefined;
+  const component = renderer({ data }, { expanded: false }, ctx.ui.theme);
+  return component?.render?.(160)?.[0]?.trim();
+}
+
 async function beginPrompt(
   pi: FakePi,
   ctx: any,
@@ -111,7 +124,7 @@ async function beginPrompt(
   entries.push({ type: 'message', id, message: user });
 }
 
-test('settled prompt persists exact aggregated v1 record while preserving live meter output', async () => {
+test('settled prompt persists one exact record and renders it as a durable transcript meter', async () => {
   const pi = new FakePi();
   const clock = new Clock();
   const entries: any[] = [];
@@ -173,15 +186,49 @@ test('settled prompt persists exact aggregated v1 record while preserving live m
       turns: 2,
       toolCalls: 2,
       compactions: 1,
+      transcript: true,
       billing: 'subscription',
       outcome: 'completed',
     },
   );
   assert.ok(Math.abs((pi.appended[0]?.data.cost ?? 0) - 0.036) < 1e-12);
+  assert.equal(ctx.widgets.has('pi-prompt-meter'), false);
   assert.equal(
-    ctx.widgets.get('pi-prompt-meter')?.lines[0],
-    '[dim]Done · 00:05 · ↑155 ↓26 R410 W4 · ↻2 TC2 Cmp1 · $0.036 (sub)[/dim]',
+    transcriptMeterText(pi, ctx),
+    '[dim]Prompt Meter · 00:05 · ↑155 ↓26 R410 W4 · ↻2 TC2 Cmp1 · $0.036 (sub)[/dim]',
   );
+});
+
+test('history-only v1 records do not become transcript rows after reload', () => {
+  const pi = new FakePi();
+  const clock = new Clock();
+  const ctx: any = context([], true);
+  registerPromptMeter(pi as any, clock as any);
+
+  const renderer = pi.renderers.get('pi-prompt-meter/v1');
+  assert.ok(renderer);
+
+  const component = renderer!(
+    {
+      data: {
+        userEntryId: 'u-old',
+        prompt: 'Old',
+        startedAt: 0,
+        endedAt: 1_000,
+        durationMs: 1_000,
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: 0,
+        billing: 'subscription',
+        outcome: 'completed',
+      },
+    },
+    { expanded: false },
+    ctx.ui.theme,
+  );
+  assert.equal(component, undefined);
 });
 
 test('canceled and error prompts persist their exact outcomes', async () => {
@@ -207,7 +254,8 @@ test('canceled and error prompts persist their exact outcomes', async () => {
 
     assert.equal(pi.appended[0]?.data.outcome, storedOutcome);
     assert.equal(pi.appended[0]?.data.billing, 'metered');
-    assert.match(ctx.widgets.get('pi-prompt-meter')?.lines[0] ?? '', new RegExp(`^${label} · 00:01 ·`));
+    assert.equal(ctx.widgets.has('pi-prompt-meter'), false);
+    assert.match(transcriptMeterText(pi, ctx) ?? '', new RegExp(`^${label} · 00:01 ·`));
   }
 });
 
@@ -230,7 +278,8 @@ test('exact history duration excludes time paused for UI input', async () => {
   assert.equal(pi.appended[0]?.data.startedAt, 0);
   assert.equal(pi.appended[0]?.data.endedAt, 15_000);
   assert.equal(pi.appended[0]?.data.durationMs, 5_000);
-  assert.match(ctx.widgets.get('pi-prompt-meter')?.lines[0] ?? '', /Done · 00:05 ·/);
+  assert.equal(ctx.widgets.has('pi-prompt-meter'), false);
+  assert.match(transcriptMeterText(pi, ctx) ?? '', /Prompt Meter · 00:05 ·/);
 });
 
 test('history billing records subscription, metered, and unknown explicitly', async () => {
@@ -268,7 +317,9 @@ test('persistence failures do not affect live meter', async () => {
   };
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'aborted' }, ctx);
   await assert.doesNotReject(() => pi.emit('agent_settled', { type: 'agent_settled' }, ctx));
-  assert.match(ctx.widgets.get('pi-prompt-meter')?.lines[0] ?? '', /^Canceled ·/);
+  assert.equal(ctx.widgets.size, 0);
+  assert.equal(ctx.working.at(-1), undefined);
+  assert.equal(pi.appended.length, 0);
 });
 
 test('session startup performs no history listing or parsing', async () => {
@@ -314,7 +365,8 @@ test('history read failures are isolated from ordinary live-meter prompts', asyn
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
   assert.equal(historyReads, 0);
-  assert.match(ctx.widgets.get('pi-prompt-meter')?.lines[0] ?? '', /Done · 00:02 ·/);
+  assert.equal(ctx.widgets.has('pi-prompt-meter'), false);
+  assert.match(transcriptMeterText(pi, ctx) ?? '', /Prompt Meter · 00:02 ·/);
 });
 
 test('/meter is lazy, TUI-only, and delegates navigation target', async () => {

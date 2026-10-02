@@ -15,6 +15,7 @@ export interface MeterHistoryRecordV1 {
   turns?: number;
   toolCalls?: number;
   compactions?: number;
+  transcript?: boolean;
   billing: BillingKind;
   outcome: MeterHistoryOutcome;
 }

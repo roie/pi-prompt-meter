@@ -245,17 +245,20 @@ export class MeterView implements Component {
     const note = this.mode === 'history'
       ? '≈ marks duration reconstructed from historical session timestamps.'
       : 'Activity bars are relative to Time within the selected range.';
-    const controls = this.mode === 'history'
-      ? '↑↓ Navigate · ←→ Month · Enter Jump · Tab Trends · Esc Close'
-      : '←→ Range · Tab History · Esc Close';
-    const lines = [truncateToWidth(themeFg(this.theme, 'muted', note), width, '…')];
+    const hints: Array<[string, string]> = this.mode === 'history'
+      ? [['↑↓', 'Navigate'], ['←→', 'Month'], ['Enter', 'Jump'], ['Tab', 'Trends'], ['Esc', 'Close']]
+      : [['←→', 'Range'], ['Tab', 'History'], ['Esc', 'Close']];
+    const controls = hints.map(([key, action]) =>
+      themeFg(this.theme, 'dim', key) + themeFg(this.theme, 'muted', ` ${action}`),
+    ).join(themeFg(this.theme, 'dim', ' · '));
+    const lines = [truncateToWidth(themeFg(this.theme, 'dim', note), width, '…')];
     const warningCount = this.catalog.warnings?.length ?? 0;
     if (warningCount > 0) {
       const warning = `⚠ ${warningCount} unreadable session${warningCount === 1 ? '' : 's'} skipped`;
       lines.push(truncateToWidth(themeFg(this.theme, 'warning', warning), width, '…'));
     }
     lines.push('');
-    lines.push(truncateToWidth(themeFg(this.theme, 'muted', controls), width, '…'));
+    lines.push(truncateToWidth(controls, width, '…'));
     return lines;
   }
 
@@ -297,7 +300,8 @@ export class MeterView implements Component {
   }
 
   render(width: number): string[] {
-    const contentWidth = this.contentWidth(width);
+    const indent = ' '.repeat(Math.min(2, Math.max(0, Math.floor(width) - 1)));
+    const contentWidth = Math.max(1, this.contentWidth(width) - indent.length);
     const footer = this.footer(contentWidth);
     const bodyLimit = this.availableBodyLines(footer.length);
     const body = this.mode === 'history'
@@ -323,7 +327,7 @@ export class MeterView implements Component {
       : 1;
     const padding = Math.max(1, Math.min(3, safeRemaining));
     for (let i = 0; i < padding; i++) lines.push('');
-    return [...lines, ...footer];
+    return [...lines, ...footer].map(line => line ? indent + truncateToWidth(line, contentWidth, '…') : line);
   }
   invalidate(): void {}
 }

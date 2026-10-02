@@ -1,4 +1,4 @@
-export type MeterLabel = 'Working' | 'Done' | 'Canceled' | 'Error';
+export type MeterLabel = 'Working' | 'Done' | 'Prompt Meter' | 'Canceled' | 'Error';
 
 export interface UsageTotals {
   input: number;

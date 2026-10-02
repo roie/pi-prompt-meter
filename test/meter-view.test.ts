@@ -221,6 +221,32 @@ test('busy History keeps the selected nested prompt visible within terminal-heig
   assert.equal(lines.some((line) => /[▾▸]/.test(line)), false);
 });
 
+test('History and Trends use context-style inset notes and individually styled shortcuts', async () => {
+  const calls: Array<[string, string]> = [];
+  const theme = { fg: (role: string, text: string) => { calls.push([role, text]); return text; } };
+  const tui = new FakeTui();
+  const view = await MeterView.create(tui as any, theme, new FakeCatalog() as any, () => {}, {
+    now: new Date(2026, 8, 30, 12),
+  });
+  for (const mode of ['history', 'trends']) {
+    calls.length = 0;
+    const lines = view.render(108);
+    assert.ok(lines.filter(Boolean).every(line => line.startsWith('  ')));
+    assert.ok(lines.every(line => visibleWidth(line) <= 108));
+    assert.ok(calls.some(([role, text]) => role === 'dim' && text.includes(
+      mode === 'history' ? '≈ marks duration' : 'Activity bars are relative',
+    )));
+    assert.ok(calls.some(([role, text]) => role === 'dim' && text === 'Esc'));
+    assert.ok(calls.some(([role, text]) => role === 'muted' && text === ' Close'));
+    assert.ok(calls.some(([role, text]) => role === 'dim' && text === ' · '));
+    for (const width of [1, 20, 70, 180]) {
+      assert.ok(view.render(width).every(line => visibleWidth(line) <= Math.min(width, 108)));
+    }
+    view.handleInput('\t');
+    await view.whenIdle();
+  }
+});
+
 test('meter view keeps the bounded /context-style frame with resume-style History content', async () => {
   const { view } = await makeView();
   const lines = view.render(180);

@@ -29,6 +29,7 @@ export function parseMeterHistoryRecord(data: unknown): MeterHistoryRecordV1 | u
   if (!isOptionalNonNegativeInteger(value.turns)) return undefined;
   if (!isOptionalNonNegativeInteger(value.toolCalls)) return undefined;
   if (!isOptionalNonNegativeInteger(value.compactions)) return undefined;
+  if (value.transcript !== undefined && typeof value.transcript !== 'boolean') return undefined;
   if (typeof value.billing !== 'string' || !BILLING.has(value.billing as BillingKind)) return undefined;
   if (typeof value.outcome !== 'string' || !OUTCOMES.has(value.outcome as MeterHistoryOutcome)) return undefined;
 
@@ -46,6 +47,7 @@ export function parseMeterHistoryRecord(data: unknown): MeterHistoryRecordV1 | u
     ...(value.turns !== undefined ? { turns: value.turns } : {}),
     ...(value.toolCalls !== undefined ? { toolCalls: value.toolCalls } : {}),
     ...(value.compactions !== undefined ? { compactions: value.compactions } : {}),
+    ...(value.transcript !== undefined ? { transcript: value.transcript } : {}),
     billing: value.billing as BillingKind,
     outcome: value.outcome as MeterHistoryOutcome,
   };
