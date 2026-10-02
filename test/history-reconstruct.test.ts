@@ -119,6 +119,25 @@ test('exact meter entry overrides legacy reconstruction for the same user', () =
   assert.equal(result.durationApproximate, true);
 });
 
+test('older exact records cover follow-ups on their ancestor path but not sibling branches', () => {
+  const entries = [
+    e('u1', null, 1_000, { type: 'message', message: { role: 'user', content: 'First' } }),
+    e('a1', 'u1', 2_000, { type: 'message', message: { role: 'assistant', usage: usage(10, 1) } }),
+    e('u2', 'a1', 3_000, { type: 'message', message: { role: 'user', content: 'Follow-up' } }),
+    e('a2', 'u2', 4_000, { type: 'message', message: { role: 'assistant', usage: usage(20, 2) } }),
+    e('m1', 'a2', 5_000, { type: 'custom', customType: METER_ENTRY_TYPE, data: {
+      userEntryId: 'u1', prompt: 'First', startedAt: 1_000, endedAt: 5_000, durationMs: 4_000,
+      input: 30, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0,
+      billing: 'unknown', outcome: 'completed',
+    } }),
+    e('u3', 'a1', 3_000, { type: 'message', message: { role: 'user', content: 'Other branch' } }),
+    e('a3', 'u3', 4_000, { type: 'message', message: { role: 'assistant', usage: usage(7, 1) } }),
+  ];
+  const result = reconstructSessionHistory(entries as any, meta);
+  assert.deepEqual(result.rows.map((row) => [row.userEntryId, row.input]), [['u1', 30], ['u3', 7]]);
+  assert.equal(result.totals.input, 37);
+});
+
 test('invalid timestamp ordering yields no invented duration', () => {
   const entries = [
     { id: 'u1', parentId: null, timestamp: 'bad', type: 'message', message: { role: 'user', content: 'Bad time' } },

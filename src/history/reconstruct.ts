@@ -150,10 +150,31 @@ export function reconstructSessionHistory(
   };
 
   const exactByUser = new Map<string, MeterHistoryRecordV1>();
+  const coveredUsers = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== 'custom' || entry.customType !== METER_ENTRY_TYPE) continue;
     const parsed = parseMeterHistoryRecord(entry.data);
-    if (parsed) exactByUser.set(parsed.userEntryId, parsed);
+    if (!parsed) continue;
+    exactByUser.set(parsed.userEntryId, parsed);
+
+    // The settled record covers this ancestor path, including steering and
+    // queued follow-ups. Use Pi's tree boundary, not timestamps or prompt text.
+    const path: SessionEntryLike[] = [];
+    const seen = new Set<string>();
+    let ancestor = entry.parentId ? byId.get(entry.parentId) : undefined;
+    while (ancestor && !seen.has(ancestor.id)) {
+      seen.add(ancestor.id);
+      path.push(ancestor);
+      if (ancestor.id === parsed.userEntryId) {
+        for (const covered of path) {
+          if (covered.type === 'message' && covered.message?.role === 'user') {
+            coveredUsers.add(covered.id);
+          }
+        }
+        break;
+      }
+      ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+    }
   }
 
   const legacy = new Map<string, LegacyAccumulator>();
@@ -202,6 +223,7 @@ export function reconstructSessionHistory(
       rows.push(exactRow(exact, meta));
       continue;
     }
+    if (coveredUsers.has(userId)) continue;
     const validDuration =
       acc.startedAt !== undefined && acc.endedAt !== undefined && acc.endedAt >= acc.startedAt
         ? acc.endedAt - acc.startedAt
