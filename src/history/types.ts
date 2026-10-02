@@ -12,6 +12,9 @@ export interface MeterHistoryRecordV1 {
   cacheRead: number;
   cacheWrite: number;
   cost: number;
+  turns?: number;
+  toolCalls?: number;
+  compactions?: number;
   billing: BillingKind;
   outcome: MeterHistoryOutcome;
 }
@@ -38,6 +41,9 @@ export interface PromptHistoryRow {
   cacheRead: number;
   cacheWrite: number;
   cost: number;
+  turns?: number;
+  toolCalls?: number;
+  compactions?: number;
   billing: BillingKind;
   outcome?: MeterHistoryOutcome;
   exact: boolean;

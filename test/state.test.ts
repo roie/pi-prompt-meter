@@ -7,10 +7,13 @@ import {
   createPromptMeter,
   finalizeMessageUsage,
   pausePromptMeter,
+  recordToolCall,
+  recordTurn,
   resetPromptMeter,
   resumePromptMeter,
   setOutcome,
   setStreamingUsage,
+  snapshotActivity,
   snapshotTotals,
 } from '../src/state.ts';
 
@@ -138,4 +141,36 @@ test('stores completed, aborted, and error outcomes', () => {
     setOutcome(state, outcome);
     assert.equal(state.outcome, outcome);
   }
+});
+
+
+test('counts turns, nested tool executions, and compactions exactly once by event identity', () => {
+  const state = createPromptMeter(0);
+  recordTurn(state, 0);
+  recordTurn(state, 1);
+  recordTurn(state, 1);
+  recordToolCall(state, 'tool-1');
+  recordToolCall(state, 'tool-1/1');
+  recordToolCall(state, 'tool-1/1');
+  addCompactionUsage(state, 'compact:1');
+  addCompactionUsage(state, 'compact:1');
+
+  assert.deepEqual(snapshotActivity(state), {
+    turns: 2,
+    toolCalls: 2,
+    compactions: 1,
+  });
+});
+
+test('reset clears agent activity counters', () => {
+  const state = createPromptMeter(0);
+  recordTurn(state, 0);
+  recordToolCall(state, 'tool-1');
+  addCompactionUsage(state, 'compact:1');
+  resetPromptMeter(state, 1_000);
+  assert.deepEqual(snapshotActivity(state), {
+    turns: 0,
+    toolCalls: 0,
+    compactions: 0,
+  });
 });

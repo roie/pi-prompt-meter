@@ -14,6 +14,9 @@ const valid = {
   cacheRead: 300,
   cacheWrite: 4,
   cost: 0.025,
+  turns: 3,
+  toolCalls: 7,
+  compactions: 1,
   billing: 'subscription',
   outcome: 'completed',
 };
@@ -21,6 +24,11 @@ const valid = {
 test('meter history record accepts a complete v1 record', () => {
   assert.equal(METER_ENTRY_TYPE, 'pi-prompt-meter/v1');
   assert.deepEqual(parseMeterHistoryRecord(valid), valid);
+});
+
+test('meter history record remains backward compatible when activity counts are absent', () => {
+  const { turns, toolCalls, compactions, ...legacyV1 } = valid;
+  assert.deepEqual(parseMeterHistoryRecord(legacyV1), legacyV1);
 });
 
 test('meter history record rejects malformed external data without throwing', () => {
@@ -34,6 +42,9 @@ test('meter history record rejects malformed external data without throwing', ()
     { ...valid, endedAt: 999 },
     { ...valid, input: -1 },
     { ...valid, cost: -0.01 },
+    { ...valid, turns: -1 },
+    { ...valid, toolCalls: 1.5 },
+    { ...valid, compactions: Number.NaN },
     { ...valid, billing: 'free' },
     { ...valid, outcome: 'aborted' },
   ]) {

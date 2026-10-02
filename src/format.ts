@@ -9,6 +9,12 @@ export interface UsageTotals {
   cost: number;
 }
 
+export interface AgentActivityCounts {
+  turns: number;
+  toolCalls: number;
+  compactions: number;
+}
+
 function finiteNonNegative(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
@@ -36,11 +42,20 @@ export function formatCost(value: number): string {
   return `$${finiteNonNegative(value).toFixed(3)}`;
 }
 
+export function formatActivity(activity: AgentActivityCounts): string {
+  return [
+    `↻${Math.floor(finiteNonNegative(activity.turns))}`,
+    `TC${Math.floor(finiteNonNegative(activity.toolCalls))}`,
+    `Cmp${Math.floor(finiteNonNegative(activity.compactions))}`,
+  ].join(' ');
+}
+
 export function formatMeter(
   label: MeterLabel,
   elapsedMs: number,
   usage: UsageTotals,
   subscription: boolean,
+  activity?: AgentActivityCounts,
 ): string {
   const tokens = [
     `↑${formatTokens(usage.input)}`,
@@ -49,10 +64,12 @@ export function formatMeter(
   ];
   if (usage.cacheWrite > 0) tokens.push(`W${formatTokens(usage.cacheWrite)}`);
 
-  return [
+  const parts = [
     label,
     formatDuration(elapsedMs),
     tokens.join(' '),
-    `${formatCost(usage.cost)}${subscription ? ' (sub)' : ''}`,
-  ].join(' · ');
+  ];
+  if (activity) parts.push(formatActivity(activity));
+  parts.push(`${formatCost(usage.cost)}${subscription ? ' (sub)' : ''}`);
+  return parts.join(' · ');
 }

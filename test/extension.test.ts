@@ -131,7 +131,7 @@ test('prompt start clears the previous result and starts Working', async () => {
 
   assert.equal(ctx.ui.widgets.has('pi-prompt-meter'), false);
   assert.equal(ctx.ui.status.has('pi-prompt-meter'), false);
-  assert.equal(ctx.ui.working.at(-1), 'Working · 00:00 · ↑0 ↓0 R0 · $0.000');
+  assert.equal(ctx.ui.working.at(-1), 'Working · 00:00 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000');
 });
 
 test('timer refreshes elapsed time without provider events', async () => {
@@ -141,7 +141,7 @@ test('timer refreshes elapsed time without provider events', async () => {
   clock.advance(2_100);
   clock.fireIntervals();
 
-  assert.equal(ctx.ui.working.at(-1), 'Working · 00:02 · ↑0 ↓0 R0 · $0.000');
+  assert.equal(ctx.ui.working.at(-1), 'Working · 00:02 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000');
 });
 
 test('settled result stays above the editor instead of moving into the footer', async () => {
@@ -152,7 +152,7 @@ test('settled result stays above the editor instead of moving into the footer', 
 
   assert.equal(ctx.ui.status.has('pi-prompt-meter'), false);
   assert.deepEqual(ctx.ui.widgets.get('pi-prompt-meter'), {
-    lines: ['[dim]Done · 00:00 · ↑0 ↓0 R0 · $0.000[/dim]'],
+    lines: ['[dim]Done · 00:00 · ↑0 ↓0 R0 · ↻0 TC0 Cmp0 · $0.000[/dim]'],
     placement: 'aboveEditor',
   });
   assert.equal(ctx.ui.working.at(-1), undefined);
@@ -176,7 +176,7 @@ test('multiple assistant messages aggregate and settle as Done', async () => {
 
   assert.equal(
     meterWidgetText(ctx),
-    '[dim]Done · 00:04 · ↑15 ↓3 R27 W7 · $0.015 (sub)[/dim]',
+    '[dim]Done · 00:04 · ↑15 ↓3 R27 W7 · ↻0 TC0 Cmp0 · $0.015 (sub)[/dim]',
   );
   assert.equal(ctx.ui.working.at(-1), undefined);
   assert.equal(clock.intervals.size, 0);
@@ -203,7 +203,7 @@ test('cloned assistant streaming snapshots are finalized exactly once', async ()
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑10 ↓2 R25 · $0.010[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑10 ↓2 R25 · ↻0 TC0 Cmp0 · $0.010[/dim]');
 });
 
 test('canceled prompt keeps the last streamed usage when the terminal message reports zero', async () => {
@@ -223,7 +223,7 @@ test('canceled prompt keeps the last streamed usage when the terminal message re
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'aborted' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), 'Canceled · 00:00 · ↑12 ↓3 R30 · $0.012');
+  assert.equal(meterWidgetText(ctx), 'Canceled · 00:00 · ↑12 ↓3 R30 · ↻0 TC0 Cmp0 · $0.012');
 });
 
 test('tool-result usage is included when Pi supplies it', async () => {
@@ -236,7 +236,7 @@ test('tool-result usage is included when Pi supplies it', async () => {
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑3 ↓1 R9 · $0.004[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑3 ↓1 R9 · ↻0 TC0 Cmp0 · $0.004[/dim]');
 });
 
 test('automatic compaction usage is included exactly once', async () => {
@@ -255,7 +255,7 @@ test('automatic compaction usage is included exactly once', async () => {
   await pi.emit('agent_before_settle', { type: 'agent_before_settle', outcome: 'completed' }, ctx);
   await pi.emit('agent_settled', { type: 'agent_settled' }, ctx);
 
-  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑100 ↓20 R200 · $0.100[/dim]');
+  assert.equal(meterWidgetText(ctx), '[dim]Done · 00:00 · ↑100 ↓20 R200 · ↻0 TC0 Cmp1 · $0.100[/dim]');
 });
 
 test('blocking UI wait time is excluded from the prompt timer', async () => {

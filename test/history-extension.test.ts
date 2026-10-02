@@ -119,6 +119,26 @@ test('settled prompt persists exact aggregated v1 record while preserving live m
   registerPromptMeter(pi as any, clock as any);
 
   await beginPrompt(pi, ctx, entries);
+  await pi.emit('turn_start', { type: 'turn_start', turnIndex: 0, timestamp: 1 }, ctx);
+  await pi.emit('turn_start', { type: 'turn_start', turnIndex: 1, timestamp: 2 }, ctx);
+  await pi.emit('turn_start', { type: 'turn_start', turnIndex: 1, timestamp: 2 }, ctx);
+  await pi.emit('tool_execution_start', {
+    type: 'tool_execution_start',
+    toolCallId: 'tool-1',
+    toolName: 'codemode',
+  }, ctx);
+  await pi.emit('tool_execution_start', {
+    type: 'tool_execution_start',
+    toolCallId: 'tool-1/1',
+    toolName: 'read',
+    parentToolCallId: 'tool-1',
+  }, ctx);
+  await pi.emit('tool_execution_start', {
+    type: 'tool_execution_start',
+    toolCallId: 'tool-1/1',
+    toolName: 'read',
+    parentToolCallId: 'tool-1',
+  }, ctx);
   clock.advance(5_000);
   await pi.emit('message_end', {
     type: 'message_end',
@@ -150,6 +170,9 @@ test('settled prompt persists exact aggregated v1 record while preserving live m
       cacheRead: 410,
       cacheWrite: 4,
       cost: undefined,
+      turns: 2,
+      toolCalls: 2,
+      compactions: 1,
       billing: 'subscription',
       outcome: 'completed',
     },
@@ -157,7 +180,7 @@ test('settled prompt persists exact aggregated v1 record while preserving live m
   assert.ok(Math.abs((pi.appended[0]?.data.cost ?? 0) - 0.036) < 1e-12);
   assert.equal(
     ctx.widgets.get('pi-prompt-meter')?.lines[0],
-    '[dim]Done · 00:05 · ↑155 ↓26 R410 W4 · $0.036 (sub)[/dim]',
+    '[dim]Done · 00:05 · ↑155 ↓26 R410 W4 · ↻2 TC2 Cmp1 · $0.036 (sub)[/dim]',
   );
 });
 

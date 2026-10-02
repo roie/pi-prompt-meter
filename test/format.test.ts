@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  formatActivity,
   formatCost,
   formatDuration,
   formatMeter,
@@ -61,4 +62,14 @@ test('uses exact final-state labels', () => {
   for (const label of ['Working', 'Done', 'Canceled', 'Error'] as const) {
     assert.match(formatMeter(label, 0, baseUsage, false), new RegExp(`^${label} ·`));
   }
+});
+
+
+test('formats exact agent activity counters as one meter group', () => {
+  const activity = { turns: 184, toolCalls: 391, compactions: 4 };
+  assert.equal(formatActivity(activity), '↻184 TC391 Cmp4');
+  assert.equal(
+    formatMeter('Working', 134_000, baseUsage, true, activity),
+    'Working · 02:14 · ↑42k ↓6.1k R1.8M · ↻184 TC391 Cmp4 · $0.041 (sub)',
+  );
 });

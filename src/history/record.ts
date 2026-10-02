@@ -9,6 +9,10 @@ function isNonNegativeFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
+function isOptionalNonNegativeInteger(value: unknown): value is number | undefined {
+  return value === undefined || (typeof value === 'number' && Number.isInteger(value) && value >= 0);
+}
+
 export function parseMeterHistoryRecord(data: unknown): MeterHistoryRecordV1 | undefined {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
   const value = data as Record<string, unknown>;
@@ -22,6 +26,9 @@ export function parseMeterHistoryRecord(data: unknown): MeterHistoryRecordV1 | u
   if (!isNonNegativeFinite(value.cacheRead)) return undefined;
   if (!isNonNegativeFinite(value.cacheWrite)) return undefined;
   if (!isNonNegativeFinite(value.cost)) return undefined;
+  if (!isOptionalNonNegativeInteger(value.turns)) return undefined;
+  if (!isOptionalNonNegativeInteger(value.toolCalls)) return undefined;
+  if (!isOptionalNonNegativeInteger(value.compactions)) return undefined;
   if (typeof value.billing !== 'string' || !BILLING.has(value.billing as BillingKind)) return undefined;
   if (typeof value.outcome !== 'string' || !OUTCOMES.has(value.outcome as MeterHistoryOutcome)) return undefined;
 
@@ -36,6 +43,9 @@ export function parseMeterHistoryRecord(data: unknown): MeterHistoryRecordV1 | u
     cacheRead: value.cacheRead,
     cacheWrite: value.cacheWrite,
     cost: value.cost,
+    ...(value.turns !== undefined ? { turns: value.turns } : {}),
+    ...(value.toolCalls !== undefined ? { toolCalls: value.toolCalls } : {}),
+    ...(value.compactions !== undefined ? { compactions: value.compactions } : {}),
     billing: value.billing as BillingKind,
     outcome: value.outcome as MeterHistoryOutcome,
   };

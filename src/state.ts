@@ -1,4 +1,4 @@
-import type { UsageTotals } from './format.ts';
+import type { AgentActivityCounts, UsageTotals } from './format.ts';
 
 export type PromptOutcome = 'completed' | 'aborted' | 'error';
 
@@ -21,6 +21,8 @@ export interface PromptMeterState {
   streamingMessageKey?: string;
   streamingUsage: UsageTotals;
   finalizedMessageKeys: Set<string>;
+  turnIndexes: Set<number>;
+  toolCallIds: Set<string>;
   compactionKeys: Set<string>;
   outcome?: PromptOutcome;
   active: boolean;
@@ -81,6 +83,8 @@ export function createPromptMeter(nowMs: number): PromptMeterState {
     finalizedUsage: zeroUsage(),
     streamingUsage: zeroUsage(),
     finalizedMessageKeys: new Set(),
+    turnIndexes: new Set(),
+    toolCallIds: new Set(),
     compactionKeys: new Set(),
     active: true,
   };
@@ -94,6 +98,8 @@ export function resetPromptMeter(state: PromptMeterState, nowMs: number): void {
   state.streamingMessageKey = undefined;
   state.streamingUsage = zeroUsage();
   state.finalizedMessageKeys.clear();
+  state.turnIndexes.clear();
+  state.toolCallIds.clear();
   state.compactionKeys.clear();
   state.outcome = undefined;
   state.active = true;
@@ -147,6 +153,16 @@ export function finalizeMessageUsage(
   }
 }
 
+export function recordTurn(state: PromptMeterState, turnIndex: number): void {
+  if (!state.active || !Number.isInteger(turnIndex) || turnIndex < 0) return;
+  state.turnIndexes.add(turnIndex);
+}
+
+export function recordToolCall(state: PromptMeterState, toolCallId: string): void {
+  if (!state.active || toolCallId.length === 0) return;
+  state.toolCallIds.add(toolCallId);
+}
+
 export function addCompactionUsage(
   state: PromptMeterState,
   compactionKey: string,
@@ -163,4 +179,12 @@ export function setOutcome(state: PromptMeterState, outcome: PromptOutcome): voi
 
 export function snapshotTotals(state: PromptMeterState): UsageTotals {
   return addUsage(state.finalizedUsage, state.streamingUsage);
+}
+
+export function snapshotActivity(state: PromptMeterState): AgentActivityCounts {
+  return {
+    turns: state.turnIndexes.size,
+    toolCalls: state.toolCallIds.size,
+    compactions: state.compactionKeys.size,
+  };
 }

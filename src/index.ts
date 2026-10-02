@@ -10,9 +10,12 @@ import {
   createPromptMeter,
   finalizeMessageUsage,
   pausePromptMeter,
+  recordToolCall,
+  recordTurn,
   resumePromptMeter,
   setOutcome,
   setStreamingUsage,
+  snapshotActivity,
   snapshotTotals,
   type PromptMeterState,
   type PromptOutcome,
@@ -64,6 +67,14 @@ interface PromptMeterEventMap {
   session_start: { type: 'session_start'; reason?: string };
   session_shutdown: { type: 'session_shutdown'; reason?: string };
   before_agent_start: { type: 'before_agent_start'; prompt?: string };
+  turn_start: { type: 'turn_start'; turnIndex: number; timestamp: number };
+  tool_execution_start: {
+    type: 'tool_execution_start';
+    toolCallId: string;
+    toolName: string;
+    args?: unknown;
+    parentToolCallId?: string;
+  };
   message_start: { type: 'message_start'; message: MessageLike };
   message_update: { type: 'message_update'; message: MessageLike };
   message_end: { type: 'message_end'; message: MessageLike };
@@ -269,7 +280,13 @@ export function registerPromptMeter(
     if (!state?.active) return;
     safeSetWorkingMessage(
       ctx,
-      formatMeter('Working', activeElapsedMs(state, runtime.now()), snapshotTotals(state), subscription),
+      formatMeter(
+        'Working',
+        activeElapsedMs(state, runtime.now()),
+        snapshotTotals(state),
+        subscription,
+        snapshotActivity(state),
+      ),
     );
   };
 
@@ -335,6 +352,16 @@ export function registerPromptMeter(
     startTimer(ctx);
   });
 
+  pi.on('turn_start', (event) => {
+    if (!state?.active) return;
+    recordTurn(state, event.turnIndex);
+  });
+
+  pi.on('tool_execution_start', (event) => {
+    if (!state?.active) return;
+    recordToolCall(state, event.toolCallId);
+  });
+
   pi.on('message_start', (event) => {
     if (!state?.active) return;
     if (event.message.role === 'user') {
@@ -397,13 +424,14 @@ export function registerPromptMeter(
     resumePromptMeter(state, settledAt);
     const elapsedMs = activeElapsedMs(state, settledAt);
     const usage = snapshotTotals(state);
+    const activity = snapshotActivity(state);
     const label = finalLabel(state.outcome);
 
     state.active = false;
     stopTimer();
     safeSetWorkingMessage(ctx);
     safeSetStatus(ctx, undefined);
-    const finalText = formatMeter(label, elapsedMs, usage, subscription);
+    const finalText = formatMeter(label, elapsedMs, usage, subscription, activity);
     safeSetWidget(ctx, styleFinalMeter(ctx, label, finalText));
 
     try {
@@ -424,6 +452,9 @@ export function registerPromptMeter(
           cacheRead: usage.cacheRead,
           cacheWrite: usage.cacheWrite,
           cost: usage.cost,
+          turns: activity.turns,
+          toolCalls: activity.toolCalls,
+          compactions: activity.compactions,
           billing: billingKind(ctx),
           outcome: historyOutcome(state.outcome),
         });

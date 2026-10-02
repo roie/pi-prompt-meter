@@ -3,7 +3,7 @@
 A tiny Pi extension that shows how much time and model usage each prompt consumes.
 
 ```text
-Working · 00:22 · ↑12k ↓640 R210k · $0.004 (sub)
+Working · 00:22 · ↑12k ↓640 R210k · ↻3 TC7 Cmp1 · $0.004 (sub)
 ```
 
 The status changes to `Done`, `Canceled`, or `Error` when the prompt ends.
@@ -29,9 +29,12 @@ If Pi is already running:
 | `↓` | Output tokens |
 | `R` | Cache-read tokens |
 | `W` | Cache-write tokens, when present |
+| `↻` | Pi turns (one LLM turn plus its tool executions) |
+| `TC` | Tool executions, including nested tool calls |
+| `Cmp` | Compactions during the prompt |
 | `$` | Estimated cost |
 
-Each new prompt starts a fresh meter. The finished result stays visible until the next prompt starts. `/new` clears it.
+Each new prompt starts a fresh meter. Turn, tool-call, and compaction counts come from Pi lifecycle events and are recorded exactly for new prompts. The finished result stays visible until the next prompt starts. `/new` clears it.
 
 ## History
 

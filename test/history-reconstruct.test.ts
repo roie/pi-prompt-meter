@@ -92,6 +92,7 @@ test('exact meter entry overrides legacy reconstruction for the same user', () =
   const exact = {
     userEntryId: 'u1', prompt: 'Exact prompt', startedAt: 1_000, endedAt: 4_000, durationMs: 2_500,
     input: 99, output: 9, cacheRead: 999, cacheWrite: 2, cost: 0.123,
+    turns: 4, toolCalls: 9, compactions: 1,
     billing: 'subscription', outcome: 'completed',
   };
   const entries = [
@@ -108,6 +109,9 @@ test('exact meter entry overrides legacy reconstruction for the same user', () =
   assert.equal(first.durationApproximate, false);
   assert.equal(first.input, 99);
   assert.equal(first.prompt, 'Exact prompt');
+  assert.equal(first.turns, 4);
+  assert.equal(first.toolCalls, 9);
+  assert.equal(first.compactions, 1);
   assert.equal(second.exact, false);
   assert.equal(second.outcome, 'error');
   assert.equal(result.totals.input, 119);
