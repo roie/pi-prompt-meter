@@ -59,7 +59,6 @@ Use left/right to page months. History groups each session as a summary row with
 
 - Pi `>= 1.0.0`
 - Node.js `>= 22.19.0`
-- `/meter` requires Pi's interactive TUI
 
 ## License
 
