@@ -111,15 +111,8 @@ export class MeterView implements Component {
   }
 
   private chooseDefaultSelection(): void {
-    const preferred =
-      this.sessions.find((session) => session.sessionPath === this.currentSessionPath)
-      ?? this.sessions[0];
-    const preferredRow = preferred?.rows[0];
-    const fallback = this.sessions.flatMap((session) => session.rows)[0];
-    const row = preferredRow ?? fallback;
-    this.selected = row
-      ? { kind: 'prompt', sessionPath: row.sessionPath, userEntryId: row.userEntryId }
-      : undefined;
+    const items = this.selectableItems();
+    this.selected = items.find(item => item.sessionPath === this.currentSessionPath) ?? items[0];
   }
 
   private async loadMonth(requestRender = true): Promise<void> {
@@ -142,8 +135,8 @@ export class MeterView implements Component {
   private selectableItems(): HistorySelection[] {
     const items: HistorySelection[] = [];
     for (const session of this.sessions) {
-      for (const row of session.rows) {
-        items.push({ kind: 'prompt', sessionPath: session.sessionPath, userEntryId: row.userEntryId });
+      for (const [rowIndex, row] of session.rows.entries()) {
+        items.push({ kind: 'prompt', sessionPath: session.sessionPath, rowIndex, userEntryId: row.userEntryId });
       }
     }
     return items;
@@ -156,7 +149,7 @@ export class MeterView implements Component {
       ? items.findIndex(
           (item) =>
             item.sessionPath === this.selected?.sessionPath
-            && item.userEntryId === this.selected?.userEntryId,
+            && item.rowIndex === this.selected?.rowIndex,
         )
       : -1;
     const next = Math.max(0, Math.min(items.length - 1, (index < 0 ? 0 : index) + delta));

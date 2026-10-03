@@ -23,7 +23,7 @@ test('history renders session headings with prompts permanently nested below', (
   const lines = renderHistory({
     month: '2026-09',
     sessions: [summary],
-    selected: { kind: 'prompt', sessionPath: '/s1', userEntryId: 'u1' },
+    selected: { kind: 'prompt', sessionPath: '/s1', rowIndex: 0, userEntryId: 'u1' },
     width: 120,
   });
 
@@ -54,7 +54,7 @@ test('prompt items keep nested identity and degrade metadata before prompt text'
     const lines = renderHistory({
       month: '2026-09',
       sessions: [summary],
-      selected: { kind: 'prompt', sessionPath: '/s1', userEntryId: 'u1' },
+      selected: { kind: 'prompt', sessionPath: '/s1', rowIndex: 0, userEntryId: 'u1' },
       width,
     });
     assert.equal(lines.every((line) => visibleWidth(line) <= width), true, `width ${width}`);
@@ -67,7 +67,7 @@ test('prompt items keep nested identity and degrade metadata before prompt text'
   const wideLines = renderHistory({
     month: '2026-09',
     sessions: [summary],
-    selected: { kind: 'prompt', sessionPath: '/s1', userEntryId: 'u1' },
+    selected: { kind: 'prompt', sessionPath: '/s1', rowIndex: 0, userEntryId: 'u1' },
     width: 108,
   });
   const widePromptIndex = wideLines.findIndex((line) => line.includes('Fix the'));
@@ -79,7 +79,7 @@ test('prompt items keep nested identity and degrade metadata before prompt text'
   const narrowLines = renderHistory({
     month: '2026-09',
     sessions: [summary],
-    selected: { kind: 'prompt', sessionPath: '/s1', userEntryId: 'u1' },
+    selected: { kind: 'prompt', sessionPath: '/s1', rowIndex: 0, userEntryId: 'u1' },
     width: 58,
   });
   const narrowPromptIndex = narrowLines.findIndex((line) => line.includes('Fix the'));
@@ -108,7 +108,7 @@ test('history groups multiple sessions while only prompt rows are selectable', (
   const lines = renderHistory({
     month: '2026-09',
     sessions: [summary, second],
-    selected: { kind: 'prompt', sessionPath: '/s2', userEntryId: 'u2' },
+    selected: { kind: 'prompt', sessionPath: '/s2', rowIndex: 0, userEntryId: 'u2' },
     width: 108,
   });
   const text = lines.join('\n');
@@ -129,7 +129,7 @@ test('history renders unknown legacy metrics as dashes in session and prompt usa
   const text = renderHistory({
     month:'2026-09',
     sessions:[unknownSummary],
-    selected:{kind:'prompt',sessionPath:'/s1',userEntryId:'u1'},
+    selected:{kind:'prompt',sessionPath:'/s1',rowIndex:0,userEntryId:'u1'},
     width:120,
   }).join('\n');
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { visibleWidth } from '@earendil-works/pi-tui';
 
 import { MeterView } from '../src/ui/meter-view.ts';
+import { reconstructSessionHistory } from '../src/history/reconstruct.ts';
 import type { SessionHistorySummary } from '../src/history/types.ts';
 
 const sep = new Date(2026, 8, 30, 10).getTime();
@@ -85,7 +86,7 @@ test('History starts with prompts nested for the selected month and selects the 
   const state = view.snapshot();
   assert.equal(state.mode, 'history');
   assert.equal(state.month, '2026-09');
-  assert.deepEqual(state.selected, { kind: 'prompt', sessionPath: '/current', userEntryId: 'u' });
+  assert.deepEqual(state.selected, { kind: 'prompt', sessionPath: '/current', rowIndex: 0, userEntryId: 'u' });
   assert.equal(state.sessions.every((session) => session.rows.length > 0), true);
 });
 
@@ -95,7 +96,7 @@ test('month paging loads that month prompts and resets selection to its first pr
   await view.whenIdle();
   const state = view.snapshot();
   assert.equal(state.month, '2026-08');
-  assert.deepEqual(state.selected, { kind: 'prompt', sessionPath: '/aug', userEntryId: 'u' });
+  assert.deepEqual(state.selected, { kind: 'prompt', sessionPath: '/aug', rowIndex: 0, userEntryId: 'u' });
 });
 
 test('up/down navigate prompts only and Enter always jumps to the selected prompt', async () => {
@@ -105,6 +106,7 @@ test('up/down navigate prompts only and Enter always jumps to the selected promp
   assert.deepEqual(view.snapshot().selected, {
     kind: 'prompt',
     sessionPath: '/other',
+    rowIndex: 0,
     userEntryId: 'u',
   });
 
@@ -114,6 +116,69 @@ test('up/down navigate prompts only and Enter always jumps to the selected promp
     sessionPath: '/other',
     userEntryId: 'u',
   });
+});
+
+test('exact and uncovered History rows traverse independently and jump to their initiating user', async () => {
+  const entry = (id: string, parentId: string | null, ms: number, extra: { type: string } & Record<string, unknown>) => ({
+    id, parentId, timestamp: new Date(sep + ms).toISOString(), ...extra,
+  });
+  const usage = (input: number) => ({ input, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: .001 } });
+  const session = reconstructSessionHistory([
+    entry('u1', null, 0, { type: 'message', message: { role: 'user', content: 'First prompt' } }),
+    entry('a1', 'u1', 1000, { type: 'message', message: { role: 'assistant', usage: usage(10), stopReason: 'stop' } }),
+    entry('m1', 'a1', 1100, { type: 'custom', customType: 'pi-prompt-meter/v1', data: {
+      userEntryId: 'u1', prompt: 'First prompt', startedAt: sep, endedAt: sep + 1000, durationMs: 1000,
+      input: 10, output: 1, cacheRead: 0, cacheWrite: 0, cost: .001,
+      turns: 1, toolCalls: 2, compactions: 0, billing: 'metered', outcome: 'completed',
+    } }),
+    entry('c1', 'm1', 2000, { type: 'compaction', usage: usage(7) }),
+    entry('u2', 'c1', 3000, { type: 'message', message: { role: 'user', content: 'Next prompt' } }),
+    entry('a2', 'u2', 4000, { type: 'message', message: { role: 'assistant', usage: usage(20), stopReason: 'stop' } }),
+  ], { id: 's', path: '/s', createdMs: sep, modifiedMs: sep + 4000 });
+  assert.deepEqual(session.rows.map(row => [row.userEntryId, row.input, row.exact]), [
+    ['u1', 10, true], ['u1', 7, false], ['u2', 20, false],
+  ]);
+  assert.deepEqual(session.totals, { input: 37, output: 3, cacheRead: 0, cacheWrite: 0, cost: .003 });
+  assert.deepEqual([session.rows[0]?.turns, session.rows[0]?.toolCalls, session.rows[0]?.compactions], [1, 2, 0]);
+  const unchanged = structuredClone(session);
+  const catalog = new FakeCatalog();
+  catalog.byMonth.set('2026-09', [session, summary('/other', sep)]);
+  const create = async () => {
+    const tui = new FakeTui();
+    tui.terminal.rows = 40;
+    let result: unknown;
+    const view = await MeterView.create(tui as any, {}, catalog, r => { result = r; }, {
+      currentSessionPath: '/s', now: new Date(sep),
+    });
+    return { view, getResult: () => result };
+  };
+  const assertHighlighted = (view: MeterView, prompt: string, input: number) => {
+    const lines = view.render(108);
+    const selectedLines = lines.flatMap((line, index) => line.includes('› ') ? [index] : []);
+    assert.equal(selectedLines.length, 1, 'only the selected row is highlighted');
+    assert.ok(lines[selectedLines[0]!]!.includes(`› ${prompt}`));
+    assert.match(lines[selectedLines[0]! + 1]!, new RegExp(`↑${input}\\b`));
+  };
+  const { view } = await create();
+  const expected = [['First prompt', 10], ['First prompt', 7], ['Next prompt', 20], ['Prompt', 1]] as const;
+  assertHighlighted(view, ...expected[0]);
+  for (const [key, index] of [
+    ['\u001b[B', 1], ['\u001b[B', 2], ['\u001b[B', 3], ['\u001b[B', 3],
+    ['\u001b[A', 2], ['\u001b[A', 1], ['\u001b[A', 0], ['\u001b[A', 0],
+  ] as const) {
+    view.handleInput(key);
+    const [prompt, input] = expected[index];
+    assertHighlighted(view, prompt, input);
+  }
+  for (let index = 0; index < 4; index++) {
+    const { view: jumpView, getResult } = await create();
+    for (let step = 0; step < index; step++) jumpView.handleInput('\u001b[B');
+    jumpView.handleInput('\r');
+    assert.deepEqual(getResult(), {
+      kind: 'navigate', sessionPath: index === 3 ? '/other' : '/s', userEntryId: index === 3 ? 'u' : index === 2 ? 'u2' : 'u1',
+    });
+  }
+  assert.deepEqual(session, unchanged, 'selection and navigation leave accounting unchanged');
 });
 
 test('selected month loads details for every session without touching other months', async () => {

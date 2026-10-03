@@ -5,6 +5,7 @@ import type { PromptHistoryRow, SessionHistorySummary } from '../history/types.t
 export type HistorySelection = {
   kind: 'prompt';
   sessionPath: string;
+  rowIndex: number;
   userEntryId: string;
 };
 
@@ -221,10 +222,10 @@ export function renderHistory(options: RenderHistoryOptions): string[] {
       ),
     );
 
-    for (const row of session.rows) {
+    for (const [rowIndex, row] of session.rows.entries()) {
       const selected =
         options.selected?.sessionPath === session.sessionPath
-        && options.selected.userEntryId === row.userEntryId;
+        && options.selected.rowIndex === rowIndex;
       lines.push(...renderPrompt(row, selected, width, options.theme));
     }
 
