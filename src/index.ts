@@ -360,8 +360,7 @@ export function registerPromptMeter(
 
   pi.on('agent_start', () => {
     if (!state?.active) return;
-    // Pi resets turnIndex on agent.continue(), including retries and recovery.
-    // Those runs still belong to the same prompt until agent_settled.
+    // Pi resets turnIndex on continuation without settling the prompt.
     turnOffset = snapshotActivity(state).turns;
   });
 
@@ -396,8 +395,7 @@ export function registerPromptMeter(
     if (event.message.role === 'assistant') {
       const key = assistantKey(event.message);
       finalizeMessageUsage(state, key, event.message.usage);
-      // Pi skips agent_before_settle when aborted. The latest terminal assistant
-      // supplies the fallback outcome; a later recovery or boundary can replace it.
+      // Pi skips agent_before_settle on abort, so retain the latest terminal outcome.
       const stopReason = event.message.stopReason;
       setOutcome(state, stopReason === 'aborted' || stopReason === 'error' ? stopReason : 'completed');
       if (currentAssistantKey === key) currentAssistantKey = undefined;
@@ -447,7 +445,6 @@ export function registerPromptMeter(
     stopTimer();
     safeSetWorkingMessage(ctx);
     safeSetStatus(ctx, undefined);
-    // Completed meters belong only to the custom-entry transcript, never a widget.
     clearWidget(ctx);
     let persisted = false;
 
@@ -479,15 +476,14 @@ export function registerPromptMeter(
         persisted = true;
       }
     } catch {
-      // appendEntry may throw after storing the entry (for example in a UI listener).
-      // Never retry or create a second meter on another surface.
+      // appendEntry can throw after persistence; retrying could duplicate the meter.
     }
 
     if (!persisted || !durableTranscript) {
       try {
         ctx.ui.notify?.('Prompt meter transcript unavailable; no fallback meter was created.', 'warning');
       } catch {
-        // Notification failures must not affect settlement either.
+        // Notifications are best-effort.
       }
     }
   });

@@ -48,7 +48,6 @@ function harness() {
     registerPromptMeter(pi, runtime);
     await emit('session_start', {});
     rows = [];
-    // Reload reads JSON data, not the original message/record object identities.
     entries.splice(0, entries.length, ...JSON.parse(JSON.stringify(entries)));
     entries.forEach(render); // Pi rebuild clears its container, then renders the branch
   };
@@ -115,7 +114,6 @@ test('one live owner, two durable settlements, and idempotent reload through Pi 
   for (let n = 1; n < 22; n++) await h.emit('tool_execution_start', {
     toolCallId: `parent/${n}`, toolName: 'read', parentToolCallId: 'parent',
   });
-  // Duplicate notifications do not invent extra Pi turns or tool executions.
   await h.emit('turn_start', { turnIndex: 22 });
   await h.emit('tool_execution_start', { toolCallId: 'parent/21', parentToolCallId: 'parent' });
   await h.emit('session_compact', { compactionEntry: { id: 'c1' } });
@@ -186,7 +184,7 @@ test('Pi continuation resets turnIndex but not the prompt meter or exact persist
   await h.emit('agent_start', {});
   await h.emit('turn_start', { turnIndex: 0 });
   await h.emit('turn_start', { turnIndex: 1 });
-  await h.emit('turn_start', { turnIndex: 1 }); // repeated event in this run
+  await h.emit('turn_start', { turnIndex: 1 });
   await h.settle();
   assert.equal(h.texts().length, 1);
   assert.match(h.texts()[0]!, /↻4 TC0 Cmp0/);
@@ -215,7 +213,7 @@ test('Pi renderer failure stays on the entry surface and recovers on reload with
   assert.equal(h.working(), undefined);
   assert.equal(h.widgets.size, 0);
   assert.equal(h.entries.filter(e => e.type === 'custom').length, 1);
-  assert.equal(h.texts().length, 0); // Pi renders its own error component, not another meter.
+  assert.equal(h.texts().length, 0);
   assert.equal(h.notices.length, 0);
   await h.reload();
   assert.equal(h.texts().length, 1);

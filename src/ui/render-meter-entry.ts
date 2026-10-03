@@ -32,7 +32,7 @@ export function formatMeterHistoryEntry(data: unknown): { label: MeterLabel; tex
   const record = parseMeterHistoryRecord(data);
   if (!record || record.transcript !== true) return undefined;
   const activity = activityForRecord(record);
-  // Legacy or incomplete history data must never produce a counterless transcript meter.
+  // Incomplete counters stay history-only.
   if (!activity) return undefined;
 
   const label = labelForOutcome(record.outcome);
@@ -65,7 +65,7 @@ export function renderMeterHistoryEntry(data: unknown, theme: EntryThemeLike): C
     try {
       text = theme.fg('dim', text);
     } catch {
-      // Rendering should remain usable if a theme hook fails.
+      // Keep unstyled text if the theme fails.
     }
   }
   return new Text(text, 0, 0);

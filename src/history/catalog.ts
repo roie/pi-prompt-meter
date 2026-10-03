@@ -205,7 +205,7 @@ export class ProjectHistoryCatalog {
         const details = this.reconstruct(meta, true);
         await visit(details.rows);
       } catch (error) {
-        this.detailsCache.set(meta.path, { modifiedMs: meta.modifiedMs, failed: true });
+        // A parent-read failure must not invalidate readable session History.
         this.warn(meta.path, error);
       }
     }

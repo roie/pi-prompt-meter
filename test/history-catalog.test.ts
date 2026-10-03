@@ -18,6 +18,7 @@ function fakeSource(sessionDefs: Array<{
   modifiedMs: number;
   entries: any[];
   fail?: boolean;
+  parentSessionPath?: string;
 }>) {
   const opens = new Map<string, number>();
   return {
@@ -28,6 +29,7 @@ function fakeSource(sessionDefs: Array<{
         id: session.id,
         created: new Date(session.createdMs),
         modified: new Date(session.modifiedMs),
+        parentSessionPath: session.parentSessionPath,
       }));
     },
     open(path: string) {
@@ -192,6 +194,36 @@ test('trend scanning reuses an already cached expanded session', async () => {
   assert.equal(source.opens.get('/cached'), 1);
 });
 
+
+for (const preloaded of [false, true]) {
+  test(`parent accounting failure preserves ${preloaded ? 'cached' : 'uncached'} fork History`, async () => {
+    const start = new Date(2026, 8, 30, 10).getTime();
+    const user = entry('fork-user', start);
+    const source = fakeSource([
+      { path: '/parent', id: 'parent', createdMs: start, modifiedMs: start, entries: [], fail: true },
+      {
+        path: '/fork', id: 'fork', parentSessionPath: '/parent', createdMs: start, modifiedMs: start,
+        entries: [user, {
+          id: 'fork-assistant', parentId: user.id, timestamp: new Date(start + 1_000).toISOString(),
+          type: 'message', message: { role: 'assistant', usage: { input: 30 } },
+        }],
+      },
+      { path: '/independent', id: 'independent', createdMs: start, modifiedMs: start, entries: [entry('other', start)] },
+    ]);
+    const catalog = await listProjectHistory('/project', source);
+    const before = preloaded ? await catalog.loadDetails('/fork') : undefined;
+    if (preloaded) assert.equal(before?.totals.input, 30);
+    const visited: string[] = [];
+    await catalog.forEachSessionRows((rows) => { visited.push(...rows.map((row) => row.userEntryId)); });
+    assert.deepEqual(visited, ['other']);
+    assert.deepEqual(catalog.warnings.map((warning) => warning.sessionPath), ['/parent', '/fork']);
+    assert.ok(catalog.warnings.every((warning) => warning.message.includes('bad session')));
+    const after = await catalog.loadDetails('/fork');
+    assert.equal(after?.totals.input, 30);
+    if (preloaded) assert.equal(after, before);
+    assert.equal((await catalog.load('/fork'))?.totals.input, 30);
+  });
+}
 
 test('a corrupt session does not prevent other sessions from contributing to Trends', async () => {
   const start = new Date(2026, 8, 30, 10).getTime();

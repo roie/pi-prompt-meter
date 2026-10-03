@@ -123,8 +123,7 @@ export function excludeInheritedEntries(
   entries: SessionEntryLike[],
   inheritedEntries: SessionEntryLike[],
 ): SessionEntryLike[] {
-  // Pi may re-chain parentId when it omits labels while forking. Identity is
-  // the preserved entry ID and timestamp within the explicitly linked parent.
+  // Pi forks preserve entry identity but can re-chain parentId when omitting labels.
   const identity = (entry: SessionEntryLike): string => JSON.stringify([entry.id, entry.timestamp, entry.type]);
   const inherited = new Set(inheritedEntries.map(identity));
   const copied = new Set(entries.filter((entry) => inherited.has(identity(entry))).map((entry) => entry.id));
@@ -155,8 +154,7 @@ export function excludeInheritedEntries(
     if (!copied.has(entry.id)) return entry;
     const continuedAt = continuedUsers.get(entry.id);
     if (continuedAt !== undefined) return { ...entry, timestamp: continuedAt };
-    // Keep Pi's ancestry links for new work, but not copied usage, meter records,
-    // or user rows. A continuation's legacy time starts at its copied boundary.
+    // Keep ancestry for new work without retaining copied usage or meter records.
     return { type: 'inherited', id: entry.id, parentId: entry.parentId, timestamp: entry.timestamp };
   });
 }
@@ -200,8 +198,7 @@ export function reconstructSessionHistory(
     if (!parsed) continue;
     exactByUser.set(parsed.userEntryId, parsed);
 
-    // The settled record covers this ancestor path, including steering and
-    // queued follow-ups. Use Pi's tree boundary, not timestamps or prompt text.
+    // A settled meter covers its ancestor path, including steering and follow-ups.
     const path: SessionEntryLike[] = [];
     const seen = new Set<string>();
     let ancestor = entry.parentId ? byId.get(entry.parentId) : undefined;
@@ -252,8 +249,7 @@ export function reconstructSessionHistory(
     if (!relevant) return;
 
     if (!uncoveredUsers.has(userId) && coveredUsers.has(userId)) {
-      // Start any additional legacy time at its nearest covered tree boundary,
-      // not at the beginning of the already-metered run.
+      // Additional time starts at the covered boundary, not the already-metered start.
       const seen = new Set<string>();
       let boundary = entry.parentId ? byId.get(entry.parentId) : undefined;
       while (boundary && !seen.has(boundary.id)) {

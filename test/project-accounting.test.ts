@@ -50,7 +50,6 @@ test('real disk forks count inherited meters once and retain new work on every b
       list: (cwd) => SessionManager.list(cwd, directory),
       open: (path) => SessionManager.open(path, directory),
     });
-    // Session-local History/navigation keeps copied ancestors, including cached details.
     assert.equal((await catalog.loadDetails(originalPath))?.totals.input, 37);
     assert.equal((await catalog.loadDetails(forkPath))?.totals.input, 35);
     assert.equal((await catalog.loadDetails(nestedPath))?.totals.input, 44);

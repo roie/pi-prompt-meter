@@ -37,7 +37,6 @@ for (const kind of ['sibling assistant', 'post-settlement compaction']) {
         manager.branch(target === 'initiating user' ? u1 : u2);
         appendAssistant(7);
       } else {
-        // A settled run can end on either user, with no new prompt before /compact.
         if (target === 'initiating user') manager.branch(u1);
         manager.appendCompaction('Summary', u1, 100, undefined, false, usage(7));
       }
@@ -123,7 +122,6 @@ for (const delivery of ['steering', 'queued follow-up']) {
     assert.equal(trend.cost, summary.totals.cost);
     assert.equal(trend.time, 4_000);
 
-    // Another independently settled prompt must not be swallowed by the first record.
     now += 1_000;
     await emit('before_agent_start', { prompt: 'Next' });
     await user('Next');
