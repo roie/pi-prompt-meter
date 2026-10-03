@@ -13,6 +13,59 @@ const usage = (input: number) => ({
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: input / 100 },
 });
 
+for (const kind of ['sibling assistant', 'post-settlement compaction']) {
+  for (const target of ['initiating user', 'follow-up user']) {
+    test(`exact ancestry preserves ${kind} usage under the ${target}`, () => {
+      const manager = SessionManager.inMemory('/project');
+      const at = Date.now();
+      const appendUser = (content: string) => manager.appendMessage({ role: 'user', content, timestamp: at });
+      const appendAssistant = (input: number) => manager.appendMessage({
+        role: 'assistant', content: [], api: 'openai-responses', provider: 'test', model: 'test',
+        timestamp: at, usage: usage(input), stopReason: 'stop',
+      });
+      const u1 = appendUser('First');
+      appendAssistant(10);
+      const u2 = appendUser('Follow-up');
+      appendAssistant(20);
+      const record = {
+        userEntryId: u1, prompt: 'First', startedAt: at, endedAt: at + 1_000, durationMs: 1_000,
+        input: 30, output: 3, cacheRead: 60, cacheWrite: 3, cost: 0.3,
+        billing: 'metered', outcome: 'completed',
+      };
+      const meter = manager.appendCustomEntry('pi-prompt-meter/v1', record);
+      if (kind === 'sibling assistant') {
+        manager.branch(target === 'initiating user' ? u1 : u2);
+        appendAssistant(7);
+      } else {
+        // A settled run can end on either user, with no new prompt before /compact.
+        if (target === 'initiating user') manager.branch(u1);
+        manager.appendCompaction('Summary', u1, 100, undefined, false, usage(7));
+      }
+      const entries = manager.getEntries().map((entry, index) => ({
+        ...entry, timestamp: new Date(at + index * 1_000).toISOString(),
+      }));
+      const result = reconstructSessionHistory(entries, { ...meta, createdMs: at, modifiedMs: at + 10_000 });
+      assert.equal(result.rows.length, 2);
+      assert.equal(result.totals.input, 37);
+      assert.ok(Math.abs(result.totals.output - 3.7) < 1e-12);
+      assert.equal(result.totals.cacheRead, 74);
+      assert.ok(Math.abs(result.totals.cost - 0.37) < 1e-12);
+      const exact = result.rows.find((row) => row.exact)!;
+      assert.equal(exact.input, record.input);
+      assert.equal(exact.durationMs, record.durationMs);
+      assert.equal(exact.durationApproximate, false);
+      const uncovered = result.rows.find((row) => !row.exact)!;
+      assert.equal(uncovered.input, 7);
+      const boundaryId = kind === 'post-settlement compaction' && target === 'follow-up user'
+        ? meter : target === 'initiating user' ? u1 : u2;
+      assert.equal(uncovered.startedAt, Date.parse(entries.find((entry) => entry.id === boundaryId)!.timestamp));
+      const trend = aggregateTrendSummary(result.rows, '7d', new Date(at + 10_000)).at(-1)!;
+      assert.equal(trend.input, 37);
+      assert.equal(trend.cache, 74);
+    });
+  }
+}
+
 for (const delivery of ['steering', 'queued follow-up']) {
   test(`settled ${delivery} usage is counted once in transcript, History and Trends`, async () => {
     const manager = SessionManager.inMemory('/project');

@@ -193,6 +193,7 @@ export function reconstructSessionHistory(
 
   const exactByUser = new Map<string, MeterHistoryRecordV1>();
   const coveredUsers = new Set<string>();
+  const coveredEntries = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== 'custom' || entry.customType !== METER_ENTRY_TYPE) continue;
     const parsed = parseMeterHistoryRecord(entry.data);
@@ -208,7 +209,9 @@ export function reconstructSessionHistory(
       seen.add(ancestor.id);
       path.push(ancestor);
       if (ancestor.id === parsed.userEntryId) {
+        coveredEntries.add(entry.id);
         for (const covered of path) {
+          coveredEntries.add(covered.id);
           if (covered.type === 'message' && covered.message?.role === 'user') {
             coveredUsers.add(covered.id);
           }
@@ -236,7 +239,9 @@ export function reconstructSessionHistory(
     });
   }
 
+  const uncoveredUsers = new Set<string>();
   entries.forEach((entry, order) => {
+    if (coveredEntries.has(entry.id)) return;
     const userId = nearestUser(entry);
     if (!userId) return;
     const target = legacy.get(userId);
@@ -246,6 +251,21 @@ export function reconstructSessionHistory(
     const relevant = role === 'assistant' || role === 'toolResult' || entry.type === 'compaction';
     if (!relevant) return;
 
+    if (!uncoveredUsers.has(userId) && coveredUsers.has(userId)) {
+      // Start any additional legacy time at its nearest covered tree boundary,
+      // not at the beginning of the already-metered run.
+      const seen = new Set<string>();
+      let boundary = entry.parentId ? byId.get(entry.parentId) : undefined;
+      while (boundary && !seen.has(boundary.id)) {
+        seen.add(boundary.id);
+        if (coveredEntries.has(boundary.id)) {
+          target.startedAt = timestampMs(boundary.timestamp);
+          break;
+        }
+        boundary = boundary.parentId ? byId.get(boundary.parentId) : undefined;
+      }
+    }
+    uncoveredUsers.add(userId);
     const at = timestampMs(entry.timestamp);
     if (at !== undefined && (target.endedAt === undefined || at > target.endedAt)) target.endedAt = at;
 
@@ -261,11 +281,8 @@ export function reconstructSessionHistory(
   const rows: PromptHistoryRow[] = [];
   for (const [userId, acc] of legacy) {
     const exact = exactByUser.get(userId);
-    if (exact) {
-      rows.push(exactRow(exact, meta));
-      continue;
-    }
-    if (coveredUsers.has(userId)) continue;
+    if (exact) rows.push(exactRow(exact, meta));
+    if ((exact || coveredUsers.has(userId)) && !uncoveredUsers.has(userId)) continue;
     const validDuration =
       acc.startedAt !== undefined && acc.endedAt !== undefined && acc.endedAt >= acc.startedAt
         ? acc.endedAt - acc.startedAt
