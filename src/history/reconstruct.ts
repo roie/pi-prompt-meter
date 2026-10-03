@@ -119,6 +119,48 @@ function exactRow(record: MeterHistoryRecordV1, meta: SessionMeta): PromptHistor
   };
 }
 
+export function excludeInheritedEntries(
+  entries: SessionEntryLike[],
+  inheritedEntries: SessionEntryLike[],
+): SessionEntryLike[] {
+  // Pi may re-chain parentId when it omits labels while forking. Identity is
+  // the preserved entry ID and timestamp within the explicitly linked parent.
+  const identity = (entry: SessionEntryLike): string => JSON.stringify([entry.id, entry.timestamp, entry.type]);
+  const inherited = new Set(inheritedEntries.map(identity));
+  const copied = new Set(entries.filter((entry) => inherited.has(identity(entry))).map((entry) => entry.id));
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const continuedUsers = new Map<string, string>();
+
+  for (const entry of entries) {
+    if (copied.has(entry.id)) continue;
+    const role = entry.message?.role;
+    if (role !== 'assistant' && role !== 'toolResult' && entry.type !== 'compaction') continue;
+    let ancestor: SessionEntryLike | undefined = entry;
+    let boundary: string | undefined;
+    const seen = new Set<string>();
+    while (ancestor && !seen.has(ancestor.id)) {
+      seen.add(ancestor.id);
+      if (boundary === undefined && copied.has(ancestor.id)) boundary = ancestor.timestamp;
+      if (ancestor.type === 'message' && ancestor.message?.role === 'user') {
+        if (copied.has(ancestor.id) && !continuedUsers.has(ancestor.id)) {
+          continuedUsers.set(ancestor.id, boundary ?? '');
+        }
+        break;
+      }
+      ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+    }
+  }
+
+  return entries.map((entry) => {
+    if (!copied.has(entry.id)) return entry;
+    const continuedAt = continuedUsers.get(entry.id);
+    if (continuedAt !== undefined) return { ...entry, timestamp: continuedAt };
+    // Keep Pi's ancestry links for new work, but not copied usage, meter records,
+    // or user rows. A continuation's legacy time starts at its copied boundary.
+    return { type: 'inherited', id: entry.id, parentId: entry.parentId, timestamp: entry.timestamp };
+  });
+}
+
 export function reconstructSessionHistory(
   entries: SessionEntryLike[],
   meta: SessionMeta,

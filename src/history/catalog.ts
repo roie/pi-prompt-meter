@@ -1,4 +1,4 @@
-import { reconstructSessionHistory } from './reconstruct.ts';
+import { excludeInheritedEntries, reconstructSessionHistory } from './reconstruct.ts';
 import type { PromptHistoryRow, SessionHistorySummary, SessionMeta } from './types.ts';
 
 export type MonthKey = string;
@@ -8,6 +8,7 @@ interface SessionInfoLike {
   id: string;
   created: Date;
   modified: Date;
+  parentSessionPath?: string;
 }
 
 export interface SessionManagerSource {
@@ -15,7 +16,9 @@ export interface SessionManagerSource {
   open(path: string): { getEntries(): any[] };
 }
 
-interface CatalogSession extends SessionMeta {}
+interface CatalogSession extends SessionMeta {
+  parentSessionPath?: string;
+}
 
 interface CachedSummary {
   modifiedMs: number;
@@ -119,9 +122,14 @@ export class ProjectHistoryCatalog {
     }
   }
 
-  private reconstruct(meta: CatalogSession): SessionHistorySummary {
+  private reconstruct(meta: CatalogSession, projectOnly = false): SessionHistorySummary {
     const manager = this.source.open(meta.path);
-    return reconstructSessionHistory(manager.getEntries(), meta);
+    let entries = manager.getEntries();
+    if (projectOnly && meta.parentSessionPath && this.byPath.has(meta.parentSessionPath)) {
+      const parent = this.source.open(meta.parentSessionPath);
+      entries = excludeInheritedEntries(entries, parent.getEntries());
+    }
+    return reconstructSessionHistory(entries, meta);
   }
 
   async load(path: string): Promise<SessionHistorySummary | undefined> {
@@ -188,13 +196,13 @@ export class ProjectHistoryCatalog {
   ): Promise<void> {
     for (const meta of this.byPath.values()) {
       const cached = this.validCached(this.detailsCache, meta);
-      if (cached) {
+      if (cached && !meta.parentSessionPath) {
         if (cached.summary) await visit(cached.summary.rows);
         continue;
       }
 
       try {
-        const details = this.reconstruct(meta);
+        const details = this.reconstruct(meta, true);
         await visit(details.rows);
       } catch (error) {
         this.detailsCache.set(meta.path, { modifiedMs: meta.modifiedMs, failed: true });
@@ -237,6 +245,7 @@ export async function listProjectHistory(
     path: info.path,
     createdMs: info.created.getTime(),
     modifiedMs: info.modified.getTime(),
+    parentSessionPath: info.parentSessionPath,
   }));
   return new ProjectHistoryCatalog(sessions, resolvedSource);
 }
