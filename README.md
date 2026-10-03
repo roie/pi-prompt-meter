@@ -2,6 +2,8 @@
 
 A tiny Pi extension that shows how much time and model usage each prompt consumes.
 
+![A real Pi session with the live Working meter and the final Prompt Meter row](assets/prompt-meter-demo.gif)
+
 ```text
 Working · 00:22 · ↑12k ↓640 R210k · ↻3 TC7 Cmp1 · $0.004 (sub)
 ```
